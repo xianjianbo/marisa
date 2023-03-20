@@ -1,7 +1,8 @@
 package gorm
 
 import (
-	"github.com/gin-gonic/gin"
+	"context"
+
 	"github.com/xianjianbo/marisa/model/record"
 	"gorm.io/gorm"
 )
@@ -22,7 +23,7 @@ const (
 	RecordTableName string = "marisa_chat_record"
 )
 
-func (d *RecordModel) InsertRecords(ctx *gin.Context, tx *gorm.DB, records []*record.Record) (err error) {
+func (d *RecordModel) InsertRecords(ctx context.Context, tx *gorm.DB, records []*record.Record) (err error) {
 	if tx == nil {
 		tx = d.DB
 	}
@@ -30,7 +31,7 @@ func (d *RecordModel) InsertRecords(ctx *gin.Context, tx *gorm.DB, records []*re
 	return
 }
 
-func (d *RecordModel) GetRecordsBySessionID(ctx *gin.Context, sessionID string, size int) (records []*record.Record, err error) {
+func (d *RecordModel) GetRecordsBySessionID(ctx context.Context, sessionID string, size int) (records []*record.Record, err error) {
 	err = d.DB.WithContext(ctx).Table(RecordTableName).Where(map[string]interface{}{
 		"session_id": sessionID,
 	}).Order("id").Limit(size).Scan(&records).Error

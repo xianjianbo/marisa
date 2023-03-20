@@ -1,11 +1,11 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 
-	"github.com/gin-gonic/gin"
 	"github.com/go-resty/resty/v2"
 )
 
@@ -57,8 +57,7 @@ type GPTResponse struct {
 	} `json:"choices"`
 }
 
-func GPT(ctx *gin.Context, msgs []Message) (replyContent string, err error) {
-	fmt.Println(msgs)
+func GPT(ctx context.Context, msgs []Message) (replyContent string, err error) {
 	client := resty.New()
 	clientResp, err := client.R().
 		SetHeader("Content-Type", "application/json").

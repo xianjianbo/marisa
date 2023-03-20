@@ -1,7 +1,8 @@
 package chat
 
 import (
-	"github.com/gin-gonic/gin"
+	"context"
+
 	"github.com/google/uuid"
 	"github.com/xianjianbo/marisa/model/record"
 )
@@ -9,15 +10,18 @@ import (
 type ChatInput struct {
 	Ask       string `json:"ask"`
 	UserID    string `json:"user_id"`
+	UserName  string `json:"user_name"`
 	SessionID string `json:"session_id"`
 }
 
 type ChatOutput struct {
-	Reply     string `json:"reply"`
-	SessionID string `json:"session_id"`
+	Reply            string `json:"reply"`
+	SessionID        string `json:"session_id"`
+	OggVoice         []byte
+	OggVoiceDuration int64
 }
 
-func (c *ChatService) Chat(ctx *gin.Context, input ChatInput) (output ChatOutput, err error) {
+func (c *ChatService) Chat(ctx context.Context, input ChatInput) (output ChatOutput, err error) {
 	messages := []Message{
 		{
 			Role:    RoleSystem,
@@ -51,16 +55,23 @@ func (c *ChatService) Chat(ctx *gin.Context, input ChatInput) (output ChatOutput
 		return
 	}
 
+	output.OggVoiceDuration, output.OggVoice, err = c.TTS(output.Reply)
+	if err != nil {
+		return
+	}
+
 	if err = c.RecordModel.InsertRecords(ctx, nil, []*record.Record{
 		{
 			SessionID: input.SessionID,
 			UserID:    input.UserID,
+			UserName:  input.UserName,
 			Role:      RoleUser,
 			Content:   input.Ask,
 		},
 		{
 			SessionID: input.SessionID,
 			UserID:    input.UserID,
+			UserName:  input.UserName,
 			Role:      RoleAssistant,
 			Content:   output.Reply,
 		},
