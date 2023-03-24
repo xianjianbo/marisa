@@ -4,98 +4,133 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/forPelevin/gomoji"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/xianjianbo/marisa/library/resource"
 	chatservice "github.com/xianjianbo/marisa/service/chat"
+	speechservice "github.com/xianjianbo/marisa/service/speech"
 )
 
 func BotUpdatesHandler() {
-	chatService := chatservice.NewChatService()
-
 	uconfig := tgbotapi.NewUpdate(0)
 	uconfig.Timeout = 60
 	updates := resource.TelegramBotClient.GetUpdatesChan(uconfig)
 
 	for update := range updates {
 		if update.Message != nil {
+			reply, voice := HandleMessage(*update.Message)
 
-			var ask, reply string
-			var err error
-			var chatOutput chatservice.ChatOutput
-			switch {
-			case update.Message.Text != "":
-				ask = update.Message.Text
-			case update.Message.Voice != nil:
-				voiceURL, err := resource.TelegramBotClient.GetFileDirectURL(update.Message.Voice.FileID)
-				if err != nil {
-					reply = MarisaReply2Text("Soory...I can't recognise this message currently. Please try again later.")
-					goto ToReply
-				}
+			textMsg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
+			resource.TelegramBotClient.Send(textMsg)
 
-				ask, err = chatService.RecognizeVoice(voiceURL)
-				if err != nil {
-					reply = MarisaReply2Text("Soory...I can't recognise this message currently. Please try again later.")
-					goto ToReply
-				}
-
-			default:
-				// unsupported message type
-				reply = MarisaReply2Text("Soory...I can't recognise this message currently. You can try text or voice message.")
-				goto ToReply
+			if len(voice) == 0 {
+				continue
 			}
 
-			log.Printf("%s: %s", GetUserName(*update.Message.From), ask)
-			chatOutput, err = chatService.Chat(context.Background(), chatservice.ChatInput{
-				SessionID: strconv.FormatInt(update.Message.Chat.ID, 10),
-				UserID:    strconv.FormatInt(update.Message.From.ID, 10),
-				UserName:  GetUserName(*update.Message.From),
-				Ask:       ask,
-			})
-			if err != nil {
-				fmt.Println("Got a chat error: ", err)
-				reply = MarisaReply2Text("Oops, something went wrong.")
-			} else {
-				reply = MarisaReply2Text(chatOutput.Reply)
-				if update.Message.Voice != nil {
-					reply = MarisaReply2Voice(ask, chatOutput.Reply)
-				}
-			}
-			log.Printf("%s: %s", "Marisa", chatOutput.Reply)
-
-		ToReply:
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, reply)
-			resource.TelegramBotClient.Send(msg)
-
-			voice := tgbotapi.NewVoice(update.Message.Chat.ID, tgbotapi.FileReader{
-				Reader: bytes.NewReader(chatOutput.OggVoice),
-			})
-			resource.TelegramBotClient.Send(voice)
-
+			voiceMsg := tgbotapi.NewVoice(update.Message.Chat.ID, tgbotapi.FileReader{Reader: bytes.NewReader(voice)})
+			resource.TelegramBotClient.Send(voiceMsg)
 		}
 	}
 }
 
-func GetUserName(user tgbotapi.User) string {
+func HandleMessage(message tgbotapi.Message) (reply string, voice []byte) {
+	var (
+		ask string
+		err error
+	)
+	chatService := chatservice.NewChatService()
+
+	switch {
+	case message.Text != "":
+		ask = message.Text
+	case message.Voice != nil:
+		var voiceURL string
+		if voiceURL, err = resource.TelegramBotClient.GetFileDirectURL(message.Voice.FileID); err != nil {
+			log.Println("GetFileDirectURL error: ", err)
+			reply = MarisaReply2Text("Soory...I can't recognise this message currently. Please try again later.")
+			return
+		}
+
+		resp, err := http.Get(voiceURL)
+		if err != nil {
+			log.Println("http.Get error: ", err)
+			reply = MarisaReply2Text("Soory...I can't recognise this message currently. Please try again later.")
+			return
+		}
+		defer resp.Body.Close()
+
+		voiceBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Println("io.ReadAllL error: ", err)
+			reply = MarisaReply2Text("Soory...I can't recognise this message currently. Please try again later.")
+			return
+		}
+
+		if ask, err = speechservice.SpeechToText(voiceBytes); err != nil {
+			log.Println("RecognizeVoice error: ", err)
+			reply = MarisaReply2Text("Soory...I can't recognise this message currently. Please try again later.")
+			return
+		}
+	default:
+		// unsupported message type
+		reply = MarisaReply2Text("Soory...I can't recognise this message currently. You can try text or voice message.")
+		return
+	}
+
+	log.Println("### UserID: ", strconv.Itoa(int(message.From.ID)))
+	log.Println("### "+GetTGUserName(*message.From)+": ", ask)
+
+	var chatOutput chatservice.ChatOutput
+	if chatOutput, err = chatService.Chat(context.Background(), chatservice.ChatInput{
+		SessionID: strconv.FormatInt(message.Chat.ID, 10),
+		UserID:    strconv.FormatInt(message.From.ID, 10),
+		UserName:  GetTGUserName(*message.From),
+		Ask:       ask,
+	}); err != nil {
+		log.Println("got a chat error: ", err)
+		reply = MarisaReply2Text("Oops, something went wrong.")
+		return
+	}
+
+	reply = MarisaReply2Text(chatOutput.Reply)
+	if message.Voice != nil {
+		reply = MarisaReply2Voice(ask, chatOutput.Reply)
+	}
+
+	log.Println("### Marisa: ", chatOutput.Reply)
+
+	if voice, err = speechservice.TextToSpeech(gomoji.RemoveEmojis(chatOutput.Reply)); err != nil {
+		log.Println("TextToSpeech error: ", err)
+		return
+	}
+
+	return
+}
+
+func GetTGUserName(user tgbotapi.User) string {
 	if user.UserName != "" {
 		return user.UserName
-	} else {
-		names := make([]string, 0)
-		if user.FirstName != "" {
-			names = append(names, user.FirstName)
-		}
-		if user.LastName != "" {
-			names = append(names, user.LastName)
-		}
-		return strings.Join(names, " ")
 	}
+
+	names := make([]string, 0)
+	if user.FirstName != "" {
+		names = append(names, user.FirstName)
+	}
+	if user.LastName != "" {
+		names = append(names, user.LastName)
+	}
+	return strings.Join(names, " ")
+
 }
 
 func MarisaReply2Text(replyText string) string {
-	return `Marisa: ` + replyText
+	return fmt.Sprintf("Marisa: %s", replyText)
 }
 
 func MarisaReply2Voice(askText, replyText string) string {

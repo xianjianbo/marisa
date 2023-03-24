@@ -15,10 +15,8 @@ type ChatInput struct {
 }
 
 type ChatOutput struct {
-	Reply            string `json:"reply"`
-	SessionID        string `json:"session_id"`
-	OggVoice         []byte
-	OggVoiceDuration int64
+	Reply     string `json:"reply"`
+	SessionID string `json:"session_id"`
 }
 
 func (c *ChatService) Chat(ctx context.Context, input ChatInput) (output ChatOutput, err error) {
@@ -33,17 +31,19 @@ func (c *ChatService) Chat(ctx context.Context, input ChatInput) (output ChatOut
 		input.SessionID = uuid.NewString()
 	} else {
 		historys := make([]*record.Record, 0)
-		historys, err = c.RecordModel.GetRecordsBySessionID(ctx, input.SessionID, 4)
+		historys, err = c.RecordModel.GetRecordsBySessionID(ctx, input.SessionID, 6)
 		if err != nil {
 			return
 		}
 
-		for _, history := range historys {
+		for i := len(historys) - 1; i >= 0; i-- {
+			history := historys[i]
 			messages = append(messages, Message{
 				Role:    history.Role,
 				Content: history.Content,
 			})
 		}
+
 	}
 
 	messages = append(messages, Message{
@@ -52,11 +52,6 @@ func (c *ChatService) Chat(ctx context.Context, input ChatInput) (output ChatOut
 	})
 
 	if output.Reply, err = GPT(ctx, messages); err != nil {
-		return
-	}
-
-	output.OggVoiceDuration, output.OggVoice, err = c.TTS(output.Reply)
-	if err != nil {
 		return
 	}
 

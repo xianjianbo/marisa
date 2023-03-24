@@ -34,6 +34,6 @@ func (d *RecordModel) InsertRecords(ctx context.Context, tx *gorm.DB, records []
 func (d *RecordModel) GetRecordsBySessionID(ctx context.Context, sessionID string, size int) (records []*record.Record, err error) {
 	err = d.DB.WithContext(ctx).Table(RecordTableName).Where(map[string]interface{}{
 		"session_id": sessionID,
-	}).Order("id").Limit(size).Scan(&records).Error
+	}).Order("id desc").Limit(size).Scan(&records).Error
 	return
 }
