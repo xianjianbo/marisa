@@ -18,7 +18,7 @@ type STTResponse struct {
 }
 
 func SpeechToText(audio []byte) (text string, err error) {
-	url := fmt.Sprintf("https://%s.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=en-US", config.SpeechRegion)
+	url := fmt.Sprintf("https://%s.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=zh-CN", config.SpeechRegion)
 	clientResp, err := resty.New().R().
 		SetHeader("Content-Type", "audio/ogg; codecs=opus").
 		SetHeader("Ocp-Apim-Subscription-Key", config.SpeechKey).
